@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = "terrasys/demo-cicd"
         DOCKER_TAG = "${env.BUILD_NUMBER}"
-        GITHUB_REPO = "https://github.com/tu-usuario/demo-cicd.git"
+        GITHUB_REPO = "https://github.com/crobertocroberto/app-demo.git"
     }
 
     stages {
