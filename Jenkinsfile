@@ -78,9 +78,9 @@ pipeline {
 
                     withVault([configuration: configuration, vaultSecrets: secrets]) {
                         env.DB_USER = username
-                        env.DB_PASSWORD = DB_PASSWORD
-                        env.DB_HOST = DB_HOST
-                        env.DB_NAME = DB_NAME
+                        env.DB_PASSWORD = password
+                        env.DB_HOST = host
+                        env.DB_NAME = database
                     }
                 }
                 echo '✅ Secrets retrieved successfully'
