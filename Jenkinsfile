@@ -62,7 +62,7 @@ pipeline {
                 echo '🔐 Retrieving secrets from Vault...'
                 script {
                     def secrets = [
-                        [path: 'secret/terrasys/demo-cicd', engineVersion: 2, secretValues: [
+                        [path: 'secret/demo', engineVersion: 2, secretValues: [
                             [envVar: 'DB_USER', vaultKey: 'db_user'],
                             [envVar: 'DB_PASSWORD', vaultKey: 'db_password'],
                             [envVar: 'DB_HOST', vaultKey: 'db_host'],
