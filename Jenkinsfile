@@ -62,7 +62,7 @@ pipeline {
                 echo '🔐 Retrieving secrets from Vault...'
                 script {
                     def secrets = [
-                        [path: 'secret/demo', secretValues: [
+                        [path: 'secret/terrasys/demo-cicd', engineVersion: 2, secretValues: [
                             [envVar: 'DB_USER', vaultKey: 'db_user'],
                             [envVar: 'DB_PASSWORD', vaultKey: 'db_password'],
                             [envVar: 'DB_HOST', vaultKey: 'db_host'],
@@ -70,7 +70,13 @@ pipeline {
                         ]]
                     ]
 
-                    withVault([vaultSecrets: secrets]) {
+                    def configuration = [
+                        vaultUrl: 'http://44.203.73.97:8200',
+                        vaultCredentialId: 'admin-vault',
+                        engineVersion: 2
+                    ]
+
+                    withVault([configuration: configuration, vaultSecrets: secrets]) {
                         env.DB_USER = DB_USER
                         env.DB_PASSWORD = DB_PASSWORD
                         env.DB_HOST = DB_HOST
