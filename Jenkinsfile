@@ -63,7 +63,7 @@ pipeline {
                 script {
                     def secrets = [
                         [path: 'secret/demo', engineVersion: 2, secretValues: [
-                            [envVar: 'DB_USER', vaultKey: 'db_user'],
+                            [envVar: 'DB_USER', vaultKey: 'username'],
                             [envVar: 'DB_PASSWORD', vaultKey: 'db_password'],
                             [envVar: 'DB_HOST', vaultKey: 'db_host'],
                             [envVar: 'DB_NAME', vaultKey: 'db_name']
