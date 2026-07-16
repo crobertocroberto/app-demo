@@ -24,8 +24,8 @@ public class HealthController {
         );
     }
 
-    @GetMapping("/")
-    public Map<String, String> home() {
+    @GetMapping("/info")
+    public Map<String, String> info() {
         return Map.of(
             "app", "demo-cicd",
             "version", "1.0.0",
