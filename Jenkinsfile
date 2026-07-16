@@ -64,9 +64,9 @@ pipeline {
                     def secrets = [
                         [path: 'secret/demo', engineVersion: 2, secretValues: [
                             [envVar: 'DB_USER', vaultKey: 'username'],
-                            [envVar: 'DB_PASSWORD', vaultKey: 'db_password'],
-                            [envVar: 'DB_HOST', vaultKey: 'db_host'],
-                            [envVar: 'DB_NAME', vaultKey: 'db_name']
+                            [envVar: 'DB_PASSWORD', vaultKey: 'password'],
+                            [envVar: 'DB_HOST', vaultKey: 'host'],
+                            [envVar: 'DB_NAME', vaultKey: 'database']
                         ]]
                     ]
 
@@ -77,10 +77,10 @@ pipeline {
                     ]
 
                     withVault([configuration: configuration, vaultSecrets: secrets]) {
-                        env.DB_USER = username
-                        env.DB_PASSWORD = password
-                        env.DB_HOST = host
-                        env.DB_NAME = database
+                        env.DB_USER = DB_USER
+                        env.DB_PASSWORD = DB_PASSWORD
+                        env.DB_HOST = DB_HOST
+                        env.DB_NAME = DB_NAME
                     }
                 }
                 echo '✅ Secrets retrieved successfully'
