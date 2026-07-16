@@ -18,9 +18,9 @@ public class EmployeeController {
 
     public EmployeeController() {
         // Datos de ejemplo
-        employees.add(new Employee(idCounter.getAndIncrement(), "Juan", "Pérez", "juan.perez@terrasys.com", "Desarrollador"));
-        employees.add(new Employee(idCounter.getAndIncrement(), "María", "García", "maria.garcia@terrasys.com", "QA Engineer"));
-        employees.add(new Employee(idCounter.getAndIncrement(), "Carlos", "López", "carlos.lopez@terrasys.com", "DevOps Engineer"));
+        employees.add(new Employee(idCounter.getAndIncrement(), "Juan", "Pérez", "juan.perez@empresa.com", "Desarrollador"));
+        employees.add(new Employee(idCounter.getAndIncrement(), "María", "García", "maria.garcia@empresa.com", "QA Engineer"));
+        employees.add(new Employee(idCounter.getAndIncrement(), "Carlos", "López", "carlos.lopez@empresa.com", "DevOps Engineer"));
     }
 
     @GetMapping
