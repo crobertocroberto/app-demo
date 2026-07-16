@@ -77,7 +77,7 @@ pipeline {
                     ]
 
                     withVault([configuration: configuration, vaultSecrets: secrets]) {
-                        env.DB_USER = DB_USER
+                        env.DB_USER = username
                         env.DB_PASSWORD = DB_PASSWORD
                         env.DB_HOST = DB_HOST
                         env.DB_NAME = DB_NAME
