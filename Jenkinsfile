@@ -57,28 +57,45 @@ pipeline {
             }
         }
 
+        stage('Retrieve Secrets') {
+            steps {
+                echo '🔐 Retrieving secrets from Vault...'
+                script {
+                    def secrets = [
+                        [path: 'secret/demo', secretValues: [
+                            [envVar: 'DB_USER', vaultKey: 'db_user'],
+                            [envVar: 'DB_PASSWORD', vaultKey: 'db_password'],
+                            [envVar: 'DB_HOST', vaultKey: 'db_host'],
+                            [envVar: 'DB_NAME', vaultKey: 'db_name']
+                        ]]
+                    ]
+
+                    withVault([vaultSecrets: secrets]) {
+                        env.DB_USER = DB_USER
+                        env.DB_PASSWORD = DB_PASSWORD
+                        env.DB_HOST = DB_HOST
+                        env.DB_NAME = DB_NAME
+                    }
+                }
+                echo '✅ Secrets retrieved successfully'
+            }
+        }
+
         stage('Deploy') {
             steps {
                 echo '🌐 Deploying application...'
-                withCredentials([
-                    string(credentialsId: 'db-user', variable: 'DB_USER'),
-                    string(credentialsId: 'db-password', variable: 'DB_PASSWORD'),
-                    string(credentialsId: 'db-host', variable: 'DB_HOST'),
-                    string(credentialsId: 'db-name', variable: 'DB_NAME')
-                ]) {
-                    sh """
-                        docker stop demo-cicd || true
-                        docker rm demo-cicd || true
-                        docker run -d \
-                            --name demo-cicd \
-                            -p 8090:8090 \
-                            -e DB_USER=${DB_USER} \
-                            -e DB_PASSWORD=${DB_PASSWORD} \
-                            -e DB_HOST=${DB_HOST} \
-                            -e DB_NAME=${DB_NAME} \
-                            ${DOCKER_IMAGE}:${DOCKER_TAG}
-                    """
-                }
+                sh """
+                    docker stop demo-cicd || true
+                    docker rm demo-cicd || true
+                    docker run -d \
+                        --name demo-cicd \
+                        -p 8090:8090 \
+                        -e DB_USER=\${DB_USER} \
+                        -e DB_PASSWORD=\${DB_PASSWORD} \
+                        -e DB_HOST=\${DB_HOST} \
+                        -e DB_NAME=\${DB_NAME} \
+                        ${DOCKER_IMAGE}:${DOCKER_TAG}
+                """
             }
         }
     }
