@@ -51,16 +51,9 @@ pipeline {
 
         stage('Docker Push') {
             steps {
-                echo '🚀 Pushing Docker image to registry...'
-                withCredentials([usernamePassword(
-                    credentialsId: 'docker-registry-credentials',
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
-                    sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin"
-                    sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                    sh "docker push ${DOCKER_IMAGE}:latest"
-                }
+                echo '🚀 Saving Docker image locally...'
+                sh "docker save -o /tmp/${DOCKER_IMAGE.replace('/', '_')}_${DOCKER_TAG}.tar ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                echo '✅ Image saved locally (no remote registry push for demo)'
             }
         }
 
@@ -78,7 +71,7 @@ pipeline {
                         docker rm demo-cicd || true
                         docker run -d \
                             --name demo-cicd \
-                            -p 8080:8080 \
+                            -p 8090:8090 \
                             -e DB_USER=${DB_USER} \
                             -e DB_PASSWORD=${DB_PASSWORD} \
                             -e DB_HOST=${DB_HOST} \
