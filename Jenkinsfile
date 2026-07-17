@@ -54,7 +54,13 @@ pipeline {
                 stage('Build Nginx Image') {
                     steps {
                         echo '🐳 Building Nginx Docker image...'
-                        echo '🔑 Generating SSL certificate from Vault PKI...'
+                        sh "docker build -t ${NGINX_IMAGE}:${DOCKER_TAG} -f nginx/Dockerfile.nginx nginx/"
+                        sh "docker tag ${NGINX_IMAGE}:${DOCKER_TAG} ${NGINX_IMAGE}:latest"
+                    }
+                }
+                stage('Generate SSL Certificate') {
+                    steps {
+                        echo '🔑 Requesting SSL certificate from Vault PKI...'
                         script {
                             def vaultUrl = 'http://44.203.73.97:8200'
                             def vaultCredentialId = 'admin-vault'
@@ -83,8 +89,6 @@ with open('nginx/ssl/server.key', 'w') as f:
                                 """
                             }
                         }
-                        sh "docker build -t ${NGINX_IMAGE}:${DOCKER_TAG} -f nginx/Dockerfile.nginx nginx/"
-                        sh "docker tag ${NGINX_IMAGE}:${DOCKER_TAG} ${NGINX_IMAGE}:latest"
                     }
                 }
             }
