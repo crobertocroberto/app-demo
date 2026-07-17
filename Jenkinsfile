@@ -90,18 +90,26 @@ pipeline {
         stage('Deploy') {
             steps {
                 echo '🌐 Deploying application...'
-                sh """
+                sh '''
                     docker stop demo-cicd || true
                     docker rm demo-cicd || true
+
+                    # Write secrets to a temp env file (not logged)
+                    ENV_FILE=$(mktemp)
+                    echo "DB_USER=${DB_USER}" > "$ENV_FILE"
+                    echo "DB_PASSWORD=${DB_PASSWORD}" >> "$ENV_FILE"
+                    echo "DB_HOST=${DB_HOST}" >> "$ENV_FILE"
+                    echo "DB_NAME=${DB_NAME}" >> "$ENV_FILE"
+
                     docker run -d \
                         --name demo-cicd \
                         -p 8090:8090 \
-                        -e DB_USER=\${DB_USER} \
-                        -e DB_PASSWORD=\${DB_PASSWORD} \
-                        -e DB_HOST=\${DB_HOST} \
-                        -e DB_NAME=\${DB_NAME} \
-                        ${DOCKER_IMAGE}:${DOCKER_TAG}
-                """
+                        --env-file "$ENV_FILE" \
+                        ''' + "${DOCKER_IMAGE}:${DOCKER_TAG}" + '''
+
+                    # Remove temp env file immediately
+                    rm -f "$ENV_FILE"
+                '''
             }
         }
     }
