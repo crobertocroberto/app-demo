@@ -3,6 +3,7 @@ pipeline {
 
     environment {
         DOCKER_IMAGE = "terrasys/demo-cicd"
+        NGINX_IMAGE = "terrasys/demo-nginx"
         DOCKER_TAG = "${env.BUILD_NUMBER}"
         GITHUB_REPO = "https://github.com/crobertocroberto/app-demo.git"
     }
@@ -42,10 +43,22 @@ pipeline {
         }
 
         stage('Docker Build') {
-            steps {
-                echo '🐳 Building Docker image...'
-                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
-                sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
+            parallel {
+                stage('Build App Image') {
+                    steps {
+                        echo '🐳 Building App Docker image...'
+                        sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                        sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
+                    }
+                }
+                stage('Build Nginx Image') {
+                    steps {
+                        echo '🐳 Building Nginx Docker image...'
+                        sh "nginx/generate-cert.sh"
+                        sh "docker build -t ${NGINX_IMAGE}:${DOCKER_TAG} -f nginx/Dockerfile.nginx nginx/"
+                        sh "docker tag ${NGINX_IMAGE}:${DOCKER_TAG} ${NGINX_IMAGE}:latest"
+                    }
+                }
             }
         }
 
@@ -91,8 +104,12 @@ pipeline {
             steps {
                 echo '🌐 Deploying application...'
                 sh '''
-                    docker stop demo-cicd || true
-                    docker rm demo-cicd || true
+                    # Create shared network
+                    docker network create demo-net || true
+
+                    # Stop and remove existing containers
+                    docker stop demo-cicd demo-nginx || true
+                    docker rm demo-cicd demo-nginx || true
 
                     # Write secrets to a temp env file (not logged)
                     ENV_FILE=$(mktemp)
@@ -101,14 +118,26 @@ pipeline {
                     echo "DB_HOST=${DB_HOST}" >> "$ENV_FILE"
                     echo "DB_NAME=${DB_NAME}" >> "$ENV_FILE"
 
+                    # Deploy app container
                     docker run -d \
                         --name demo-cicd \
-                        -p 8090:8090 \
+                        --network demo-net \
                         --env-file "$ENV_FILE" \
                         ''' + "${DOCKER_IMAGE}:${DOCKER_TAG}" + '''
 
                     # Remove temp env file immediately
                     rm -f "$ENV_FILE"
+                '''
+
+                echo '🌐 Deploying Nginx reverse proxy...'
+                sh '''
+                    docker run -d \
+                        --name demo-nginx \
+                        --network demo-net \
+                        -p 443:443 \
+                        -p 80:80 \
+                        -v $(pwd)/nginx/ssl:/etc/nginx/ssl:ro \
+                        ''' + "${NGINX_IMAGE}:${DOCKER_TAG}" + '''
                 '''
             }
         }
