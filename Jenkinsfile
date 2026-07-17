@@ -54,7 +54,35 @@ pipeline {
                 stage('Build Nginx Image') {
                     steps {
                         echo '🐳 Building Nginx Docker image...'
-                        sh "nginx/generate-cert.sh"
+                        echo '🔑 Generating SSL certificate from Vault PKI...'
+                        script {
+                            def vaultUrl = 'http://44.203.73.97:8200'
+                            def vaultCredentialId = 'admin-vault'
+
+                            withCredentials([string(credentialsId: vaultCredentialId, variable: 'VAULT_TOKEN')]) {
+                                sh """
+                                    mkdir -p nginx/ssl
+
+                                    # Request certificate from Vault PKI engine
+                                    RESPONSE=\$(curl -s --header "X-Vault-Token: \${VAULT_TOKEN}" \\
+                                        --request POST \\
+                                        --data '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \\
+                                        ${vaultUrl}/v1/pki/issue/demo-role)
+
+                                    # Extract certificate and private key from JSON response
+                                    echo "\${RESPONSE}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)['data']
+with open('nginx/ssl/server.crt', 'w') as f:
+    f.write(data['certificate'] + '\\\\n' + data.get('ca_chain', [''])[0])
+with open('nginx/ssl/server.key', 'w') as f:
+    f.write(data['private_key'])
+"
+                                    chmod 600 nginx/ssl/server.key
+                                    echo '✅ Certificate generated from Vault PKI'
+                                """
+                            }
+                        }
                         sh "docker build -t ${NGINX_IMAGE}:${DOCKER_TAG} -f nginx/Dockerfile.nginx nginx/"
                         sh "docker tag ${NGINX_IMAGE}:${DOCKER_TAG} ${NGINX_IMAGE}:latest"
                     }
