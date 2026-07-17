@@ -1,5 +1,5 @@
 pipeline {
-    agent any
+    agent { label 'worker1' }
 
     environment {
         DOCKER_IMAGE = "terrasys/demo-cicd"
