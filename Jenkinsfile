@@ -66,27 +66,42 @@ pipeline {
                             def vaultCredentialId = 'admin-vault'
 
                             withCredentials([string(credentialsId: vaultCredentialId, variable: 'VAULT_TOKEN')]) {
-                                sh """
+                                sh '''
+                                    set -e
                                     mkdir -p nginx/ssl
 
-                                    # Request certificate from Vault PKI engine
-                                    RESPONSE=\$(curl -s --header "X-Vault-Token: \${VAULT_TOKEN}" \\
-                                        --request POST \\
-                                        --data '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \\
-                                        ${vaultUrl}/v1/pki/issue/demo-role)
+                                    echo "Calling Vault PKI..."
+                                    HTTP_CODE=$(curl -s -o /tmp/vault_pki_response.json -w "%{http_code}" \
+                                        --header "X-Vault-Token: ${VAULT_TOKEN}" \
+                                        --request POST \
+                                        --data '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \
+                                        ''' + "http://44.203.73.97:8200/v1/pki/issue/demo-role" + ''')
 
-                                    # Extract certificate and private key from JSON response
-                                    echo "\${RESPONSE}" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)['data']
+                                    echo "Vault response code: ${HTTP_CODE}"
+
+                                    if [ "$HTTP_CODE" != "200" ]; then
+                                        echo "ERROR: Vault returned HTTP ${HTTP_CODE}"
+                                        cat /tmp/vault_pki_response.json
+                                        exit 1
+                                    fi
+
+                                    # Extract cert and key using python3
+                                    python3 -c "
+import json
+with open('/tmp/vault_pki_response.json') as f:
+    data = json.load(f)['data']
 with open('nginx/ssl/server.crt', 'w') as f:
-    f.write(data['certificate'] + '\\\\n' + data.get('ca_chain', [''])[0])
+    f.write(data['certificate'] + '\\n')
+    ca_chain = data.get('ca_chain', [])
+    if ca_chain:
+        f.write(ca_chain[0] + '\\n')
 with open('nginx/ssl/server.key', 'w') as f:
     f.write(data['private_key'])
 "
                                     chmod 600 nginx/ssl/server.key
-                                    echo '✅ Certificate generated from Vault PKI'
-                                """
+                                    rm -f /tmp/vault_pki_response.json
+                                    echo "✅ Certificate generated from Vault PKI"
+                                '''
                             }
                         }
                     }
