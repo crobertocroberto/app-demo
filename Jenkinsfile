@@ -12,6 +12,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo 'Cloning repository...'
+                sh 'rm -f /tmp/demo-cicd-env.properties'
                 checkout scm
             }
         }
@@ -137,22 +138,18 @@ pipeline {
                     docker stop demo-cicd demo-nginx || true
                     docker rm demo-cicd demo-nginx || true
 
-                    # Write secrets to a temp env file (not logged)
-                    ENV_FILE=$(mktemp)
-                    echo "DB_USER=${DB_USER}" > "$ENV_FILE"
-                    echo "DB_PASSWORD=${DB_PASSWORD}" >> "$ENV_FILE"
-                    echo "DB_HOST=${DB_HOST}" >> "$ENV_FILE"
-                    echo "DB_NAME=${DB_NAME}" >> "$ENV_FILE"
+                    # Write secrets to env file (persistent for demo validation)
+                    echo "DB_USER=${DB_USER}" > /tmp/demo-cicd-env.properties
+                    echo "DB_PASSWORD=${DB_PASSWORD}" >> /tmp/demo-cicd-env.properties
+                    echo "DB_HOST=${DB_HOST}" >> /tmp/demo-cicd-env.properties
+                    echo "DB_NAME=${DB_NAME}" >> /tmp/demo-cicd-env.properties
 
                     # Deploy app container
                     docker run -d \
                         --name demo-cicd \
                         --network demo-net \
-                        --env-file "$ENV_FILE" \
+                        --env-file /tmp/demo-cicd-env.properties \
                         ''' + "${DOCKER_IMAGE}:${DOCKER_TAG}" + '''
-
-                    # Remove temp env file immediately
-                    rm -f "$ENV_FILE"
                 '''
 
                 echo 'Deploying Nginx reverse proxy...'
@@ -178,7 +175,7 @@ pipeline {
         }
         always {
             echo 'Cleaning workspace...'
-            // cleanWs()
+            cleanWs()
         }
     }
 }
