@@ -61,24 +61,38 @@ pipeline {
                 stage('Generate SSL Certificate') {
                     steps {
                         echo 'Generating SSL certificate from Vault PKI...'
-                        withCredentials([string(credentialsId: 'admin-vault', variable: 'VAULT_TOKEN')]) {
-                            sh '''
-                                export VAULT_ADDR="http://44.203.73.97:8200"
-                                mkdir -p nginx/ssl
+                        script {
+                            def secrets = [
+                                [path: 'secret/demo', engineVersion: 2, secretValues: [
+                                    [envVar: 'VAULT_CHECK', vaultKey: 'username']
+                                ]]
+                            ]
 
-                                vault write -format=json pki/issue/demo-role \
-                                    common_name="demo.empresa.com" \
-                                    ttl="720h" \
-                                    alt_names="localhost" \
-                                    ip_sans="127.0.0.1" > /tmp/vault_cert.json
+                            def configuration = [
+                                vaultUrl: 'http://44.203.73.97:8200',
+                                vaultCredentialId: 'token-vault',
+                                engineVersion: 2
+                            ]
 
-                                jq -r '.data.certificate' /tmp/vault_cert.json > nginx/ssl/server.crt
-                                jq -r '.data.ca_chain[0] // empty' /tmp/vault_cert.json >> nginx/ssl/server.crt
-                                jq -r '.data.private_key' /tmp/vault_cert.json > nginx/ssl/server.key
+                            // Use withVault to authenticate, then use curl for PKI
+                            withVault([configuration: configuration, vaultSecrets: secrets]) {
+                                // VAULT_TOKEN is set by withVault in the environment
+                                sh '''
+                                    mkdir -p nginx/ssl
 
-                                chmod 600 nginx/ssl/server.key
-                                rm -f /tmp/vault_cert.json
-                            '''
+                                    curl -s --header "X-Vault-Token: ${VAULT_TOKEN}" \
+                                        --request POST \
+                                        --data '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \
+                                        http://44.203.73.97:8200/v1/pki/issue/demo-role > /tmp/vault_cert.json
+
+                                    jq -r '.data.certificate' /tmp/vault_cert.json > nginx/ssl/server.crt
+                                    jq -r '.data.ca_chain[0] // empty' /tmp/vault_cert.json >> nginx/ssl/server.crt
+                                    jq -r '.data.private_key' /tmp/vault_cert.json > nginx/ssl/server.key
+
+                                    chmod 600 nginx/ssl/server.key
+                                    rm -f /tmp/vault_cert.json
+                                '''
+                            }
                         }
                         echo 'SSL certificate generated from Vault PKI'
                     }
