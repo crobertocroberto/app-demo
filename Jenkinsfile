@@ -62,73 +62,63 @@ pipeline {
                     steps {
                         echo '🔑 Requesting SSL certificate from Vault PKI...'
                         script {
-                            def vaultUrl = 'http://44.203.73.97:8200'
-                            def vaultCredentialId = 'admin-vault'
-
-                            withCredentials([string(credentialsId: vaultCredentialId, variable: 'VAULT_TOKEN')]) {
+                            withCredentials([string(credentialsId: 'admin-vault', variable: 'VAULT_TOKEN')]) {
                                 sh '''
-                                    set -ex
                                     echo "=== DEBUG: Starting SSL certificate generation ==="
-                                    echo "Vault URL: http://44.203.73.97:8200"
-                                    echo "Checking available tools..."
-                                    which curl && curl --version | head -1 || echo "ERROR: curl not found"
-                                    which python3 && python3 --version || echo "ERROR: python3 not found"
+                                    echo "Checking tools..."
+                                    which curl || { echo "ERROR: curl not found"; exit 1; }
+                                    which python3 || { echo "ERROR: python3 not found"; exit 1; }
+                                    curl --version | head -1
+                                    python3 --version
 
                                     mkdir -p nginx/ssl
-                                    echo "=== DEBUG: Directory nginx/ssl created ==="
 
                                     echo "=== DEBUG: Calling Vault PKI endpoint ==="
-                                    HTTP_CODE=$(curl -sv -o /tmp/vault_pki_response.json -w "%{http_code}" \
+                                    HTTP_CODE=$(curl -s -o /tmp/vault_pki_response.json -w "%{http_code}" \
                                         --connect-timeout 10 \
                                         --max-time 30 \
-                                        --header "X-Vault-Token: ${VAULT_TOKEN}" \
-                                        --request POST \
-                                        --data '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \
-                                        http://44.203.73.97:8200/v1/pki/issue/demo-role 2>&1 | tee /tmp/vault_curl_debug.log; echo ${PIPESTATUS[0]})
+                                        -H "X-Vault-Token: ${VAULT_TOKEN}" \
+                                        -X POST \
+                                        -d '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \
+                                        http://44.203.73.97:8200/v1/pki/issue/demo-role)
 
-                                    echo "=== DEBUG: curl exit code: $? ==="
                                     echo "=== DEBUG: HTTP response code: ${HTTP_CODE} ==="
                                     echo "=== DEBUG: Response body ==="
-                                    cat /tmp/vault_pki_response.json || echo "No response file found"
+                                    cat /tmp/vault_pki_response.json
                                     echo ""
-                                    echo "=== DEBUG: curl verbose log ==="
-                                    cat /tmp/vault_curl_debug.log || true
 
-                                    if [ "$HTTP_CODE" != "200" ]; then
+                                    if [ "${HTTP_CODE}" != "200" ]; then
                                         echo "ERROR: Vault returned HTTP ${HTTP_CODE}"
-                                        echo "=== Full error response ==="
-                                        cat /tmp/vault_pki_response.json || true
                                         exit 1
                                     fi
 
-                                    echo "=== DEBUG: Extracting cert and key with python3 ==="
-                                    python3 -c "
+                                    echo "=== DEBUG: Extracting cert and key ==="
+                                    python3 << 'PYTHON_SCRIPT'
 import json, sys
 try:
     with open('/tmp/vault_pki_response.json') as f:
         response = json.load(f)
     if 'data' not in response:
-        print('ERROR: No data field in response. Full response:')
+        print('ERROR: No data field in response:')
         print(json.dumps(response, indent=2))
         sys.exit(1)
     data = response['data']
     with open('nginx/ssl/server.crt', 'w') as f:
-        f.write(data['certificate'] + '\\n')
+        f.write(data['certificate'] + '\n')
         ca_chain = data.get('ca_chain', [])
         if ca_chain:
-            f.write(ca_chain[0] + '\\n')
+            f.write(ca_chain[0] + '\n')
     with open('nginx/ssl/server.key', 'w') as f:
         f.write(data['private_key'])
-    print('Certificate and key extracted successfully')
+    print('OK: Certificate and key extracted')
 except Exception as e:
     print(f'ERROR: {e}')
     sys.exit(1)
-"
+PYTHON_SCRIPT
+
                                     chmod 600 nginx/ssl/server.key
-                                    echo "=== DEBUG: Verifying generated files ==="
                                     ls -la nginx/ssl/
-                                    openssl x509 -in nginx/ssl/server.crt -noout -subject -dates 2>&1 || echo "WARNING: openssl not available for verification"
-                                    rm -f /tmp/vault_pki_response.json /tmp/vault_curl_debug.log
+                                    rm -f /tmp/vault_pki_response.json
                                     echo "✅ Certificate generated from Vault PKI"
                                 '''
                             }
