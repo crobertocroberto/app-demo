@@ -64,7 +64,7 @@ pipeline {
         stage('Generate SSL Certificate') {
             steps {
                 echo 'Generating SSL certificate from Vault PKI...'
-                withCredentials([string(credentialsId: 'token-vault', variable: 'VAULT_TOKEN')]) {
+                withCredentials([string(credentialsId: 'vault-pki-token', variable: 'VAULT_TOKEN')]) {
                     sh '''
                         mkdir -p nginx/ssl
 
