@@ -58,6 +58,41 @@ pipeline {
                         sh "docker tag ${NGINX_IMAGE}:${DOCKER_TAG} ${NGINX_IMAGE}:latest"
                     }
                 }
+
+        stage('Retrieve Secrets') {
+            steps {
+                echo '🔐 Retrieving secrets from Vault...'
+                script {
+                    def secrets = [
+                        [path: 'secret/demo', engineVersion: 2, secretValues: [
+                            [envVar: 'DB_USER', vaultKey: 'username'],
+                            [envVar: 'DB_PASSWORD', vaultKey: 'password'],
+                            [envVar: 'DB_HOST', vaultKey: 'host'],
+                            [envVar: 'DB_NAME', vaultKey: 'database']
+                        ]]
+                    ]
+
+                    def configuration = [
+                        vaultUrl: 'http://44.203.73.97:8200',
+                        vaultCredentialId: 'admin-vault',
+                        engineVersion: 2
+                    ]
+
+                    withVault([configuration: configuration, vaultSecrets: secrets]) {
+                        env.DB_USER = DB_USER
+                        env.DB_PASSWORD = DB_PASSWORD
+                        env.DB_HOST = DB_HOST
+                        env.DB_NAME = DB_NAME
+                    }
+                }
+                echo '✅ Secrets retrieved successfully'
+            }
+        }
+
+
+
+
+
                 stage('Generate SSL Certificate') {
                     steps {
                         echo '🔑 Requesting SSL certificate from Vault PKI...'
@@ -96,35 +131,7 @@ pipeline {
             }
         }
 
-        stage('Retrieve Secrets') {
-            steps {
-                echo '🔐 Retrieving secrets from Vault...'
-                script {
-                    def secrets = [
-                        [path: 'secret/demo', engineVersion: 2, secretValues: [
-                            [envVar: 'DB_USER', vaultKey: 'username'],
-                            [envVar: 'DB_PASSWORD', vaultKey: 'password'],
-                            [envVar: 'DB_HOST', vaultKey: 'host'],
-                            [envVar: 'DB_NAME', vaultKey: 'database']
-                        ]]
-                    ]
 
-                    def configuration = [
-                        vaultUrl: 'http://44.203.73.97:8200',
-                        vaultCredentialId: 'admin-vault',
-                        engineVersion: 2
-                    ]
-
-                    withVault([configuration: configuration, vaultSecrets: secrets]) {
-                        env.DB_USER = DB_USER
-                        env.DB_PASSWORD = DB_PASSWORD
-                        env.DB_HOST = DB_HOST
-                        env.DB_NAME = DB_NAME
-                    }
-                }
-                echo '✅ Secrets retrieved successfully'
-            }
-        }
 
         stage('Deploy') {
             steps {
