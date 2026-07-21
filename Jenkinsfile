@@ -72,7 +72,7 @@ pipeline {
 
                                 curl -s --header "X-Vault-Token: ${VAULT_TOKEN}" \
                                     --request POST \
-                                    --data '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \
+                                    --data '{"common_name": "demovault.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \
                                     http://44.203.73.97:8200/v1/pki/issue/demo-role > /tmp/vault_cert.json
 
                                 jq -r '.data.certificate' /tmp/vault_cert.json > nginx/ssl/server.crt
