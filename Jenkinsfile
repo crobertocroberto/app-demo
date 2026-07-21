@@ -62,67 +62,31 @@ pipeline {
                     steps {
                         echo '🔑 Requesting SSL certificate from Vault PKI...'
                         script {
-                            withCredentials([string(credentialsId: 'admin-vault', variable: 'VAULT_TOKEN')]) {
+                            def secrets = [
+                                [path: 'pki/issue/demo-role', engineVersion: 2, secretValues: [
+                                    [envVar: 'SSL_CERTIFICATE', vaultKey: 'certificate'],
+                                    [envVar: 'SSL_PRIVATE_KEY', vaultKey: 'private_key'],
+                                    [envVar: 'SSL_CA_CHAIN', vaultKey: 'ca_chain']
+                                ]]
+                            ]
+
+                            def configuration = [
+                                vaultUrl: 'http://44.203.73.97:8200',
+                                vaultCredentialId: 'admin-vault',
+                                engineVersion: 2
+                            ]
+
+                            withVault([configuration: configuration, vaultSecrets: secrets]) {
                                 sh '''
-                                    echo "=== DEBUG: Starting SSL certificate generation ==="
-                                    echo "Checking tools..."
-                                    which curl || { echo "ERROR: curl not found"; exit 1; }
-                                    which python3 || { echo "ERROR: python3 not found"; exit 1; }
-                                    curl --version | head -1
-                                    python3 --version
-
                                     mkdir -p nginx/ssl
-
-                                    echo "=== DEBUG: Calling Vault PKI endpoint ==="
-                                    HTTP_CODE=$(curl -s -o /tmp/vault_pki_response.json -w "%{http_code}" \
-                                        --connect-timeout 10 \
-                                        --max-time 30 \
-                                        -H "X-Vault-Token: ${VAULT_TOKEN}" \
-                                        -X POST \
-                                        -d '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \
-                                        http://44.203.73.97:8200/v1/pki/issue/demo-role)
-
-                                    echo "=== DEBUG: HTTP response code: ${HTTP_CODE} ==="
-                                    echo "=== DEBUG: Response body ==="
-                                    cat /tmp/vault_pki_response.json
-                                    echo ""
-
-                                    if [ "${HTTP_CODE}" != "200" ]; then
-                                        echo "ERROR: Vault returned HTTP ${HTTP_CODE}"
-                                        exit 1
-                                    fi
-
-                                    echo "=== DEBUG: Extracting cert and key ==="
-                                    python3 << 'PYTHON_SCRIPT'
-import json, sys
-try:
-    with open('/tmp/vault_pki_response.json') as f:
-        response = json.load(f)
-    if 'data' not in response:
-        print('ERROR: No data field in response:')
-        print(json.dumps(response, indent=2))
-        sys.exit(1)
-    data = response['data']
-    with open('nginx/ssl/server.crt', 'w') as f:
-        f.write(data['certificate'] + '\n')
-        ca_chain = data.get('ca_chain', [])
-        if ca_chain:
-            f.write(ca_chain[0] + '\n')
-    with open('nginx/ssl/server.key', 'w') as f:
-        f.write(data['private_key'])
-    print('OK: Certificate and key extracted')
-except Exception as e:
-    print(f'ERROR: {e}')
-    sys.exit(1)
-PYTHON_SCRIPT
-
+                                    echo "${SSL_CERTIFICATE}" > nginx/ssl/server.crt
+                                    echo "${SSL_CA_CHAIN}" >> nginx/ssl/server.crt
+                                    echo "${SSL_PRIVATE_KEY}" > nginx/ssl/server.key
                                     chmod 600 nginx/ssl/server.key
-                                    ls -la nginx/ssl/
-                                    rm -f /tmp/vault_pki_response.json
-                                    echo "✅ Certificate generated from Vault PKI"
                                 '''
                             }
                         }
+                        echo '✅ Certificate generated from Vault PKI'
                     }
                 }
             }
