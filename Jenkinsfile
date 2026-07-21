@@ -61,27 +61,60 @@ pipeline {
             }
         }
 
-        stage('Generate SSL Certificate') {
-            steps {
-                echo 'Generating SSL certificate from Vault PKI...'
-                withCredentials([string(credentialsId: 'vault-pki-token', variable: 'VAULT_TOKEN')]) {
-                    sh '''
-                        mkdir -p nginx/ssl
+        stage('Vault Secrets') {
+            parallel {
+                stage('Generate SSL Certificate') {
+                    steps {
+                        echo 'Generating SSL certificate from Vault PKI...'
+                        withCredentials([string(credentialsId: 'vault-pki-token', variable: 'VAULT_TOKEN')]) {
+                            sh '''
+                                mkdir -p nginx/ssl
 
-                        curl -s --header "X-Vault-Token: ${VAULT_TOKEN}" \
-                            --request POST \
-                            --data '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \
-                            http://44.203.73.97:8200/v1/pki/issue/demo-role > /tmp/vault_cert.json
+                                curl -s --header "X-Vault-Token: ${VAULT_TOKEN}" \
+                                    --request POST \
+                                    --data '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \
+                                    http://44.203.73.97:8200/v1/pki/issue/demo-role > /tmp/vault_cert.json
 
-                        jq -r '.data.certificate' /tmp/vault_cert.json > nginx/ssl/server.crt
-                        jq -r '.data.ca_chain[0] // empty' /tmp/vault_cert.json >> nginx/ssl/server.crt
-                        jq -r '.data.private_key' /tmp/vault_cert.json > nginx/ssl/server.key
+                                jq -r '.data.certificate' /tmp/vault_cert.json > nginx/ssl/server.crt
+                                jq -r '.data.ca_chain[0] // empty' /tmp/vault_cert.json >> nginx/ssl/server.crt
+                                jq -r '.data.private_key' /tmp/vault_cert.json > nginx/ssl/server.key
 
-                        chmod 600 nginx/ssl/server.key
-                        rm -f /tmp/vault_cert.json
-                    '''
+                                chmod 600 nginx/ssl/server.key
+                                rm -f /tmp/vault_cert.json
+                            '''
+                        }
+                        echo 'SSL certificate generated from Vault PKI'
+                    }
                 }
-                echo 'SSL certificate generated from Vault PKI'
+                stage('Retrieve Secrets') {
+                    steps {
+                        echo 'Retrieving secrets from Vault...'
+                        script {
+                            def secrets = [
+                                [path: 'secret/demo', engineVersion: 2, secretValues: [
+                                    [envVar: 'DB_USER', vaultKey: 'username'],
+                                    [envVar: 'DB_PASSWORD', vaultKey: 'password'],
+                                    [envVar: 'DB_HOST', vaultKey: 'host'],
+                                    [envVar: 'DB_NAME', vaultKey: 'database']
+                                ]]
+                            ]
+
+                            def configuration = [
+                                vaultUrl: 'http://44.203.73.97:8200',
+                                vaultCredentialId: 'admin-vault',
+                                engineVersion: 2
+                            ]
+
+                            withVault([configuration: configuration, vaultSecrets: secrets]) {
+                                env.DB_USER = DB_USER
+                                env.DB_PASSWORD = DB_PASSWORD
+                                env.DB_HOST = DB_HOST
+                                env.DB_NAME = DB_NAME
+                            }
+                        }
+                        echo 'Secrets retrieved successfully'
+                    }
+                }
             }
         }
 
@@ -90,36 +123,6 @@ pipeline {
                 echo 'Saving Docker image locally...'
                 sh "docker save -o /tmp/${DOCKER_IMAGE.replace('/', '_')}_${DOCKER_TAG}.tar ${DOCKER_IMAGE}:${DOCKER_TAG}"
                 echo 'Image saved locally (no remote registry push for demo)'
-            }
-        }
-
-        stage('Retrieve Secrets') {
-            steps {
-                echo 'Retrieving secrets from Vault...'
-                script {
-                    def secrets = [
-                        [path: 'secret/demo', engineVersion: 2, secretValues: [
-                            [envVar: 'DB_USER', vaultKey: 'username'],
-                            [envVar: 'DB_PASSWORD', vaultKey: 'password'],
-                            [envVar: 'DB_HOST', vaultKey: 'host'],
-                            [envVar: 'DB_NAME', vaultKey: 'database']
-                        ]]
-                    ]
-
-                    def configuration = [
-                        vaultUrl: 'http://44.203.73.97:8200',
-                        vaultCredentialId: 'admin-vault',
-                        engineVersion: 2
-                    ]
-
-                    withVault([configuration: configuration, vaultSecrets: secrets]) {
-                        env.DB_USER = DB_USER
-                        env.DB_PASSWORD = DB_PASSWORD
-                        env.DB_HOST = DB_HOST
-                        env.DB_NAME = DB_NAME
-                    }
-                }
-                echo 'Secrets retrieved successfully'
             }
         }
 
