@@ -67,39 +67,68 @@ pipeline {
 
                             withCredentials([string(credentialsId: vaultCredentialId, variable: 'VAULT_TOKEN')]) {
                                 sh '''
-                                    set -e
-                                    mkdir -p nginx/ssl
+                                    set -ex
+                                    echo "=== DEBUG: Starting SSL certificate generation ==="
+                                    echo "Vault URL: http://44.203.73.97:8200"
+                                    echo "Checking available tools..."
+                                    which curl && curl --version | head -1 || echo "ERROR: curl not found"
+                                    which python3 && python3 --version || echo "ERROR: python3 not found"
 
-                                    echo "Calling Vault PKI..."
-                                    HTTP_CODE=$(curl -s -o /tmp/vault_pki_response.json -w "%{http_code}" \
+                                    mkdir -p nginx/ssl
+                                    echo "=== DEBUG: Directory nginx/ssl created ==="
+
+                                    echo "=== DEBUG: Calling Vault PKI endpoint ==="
+                                    HTTP_CODE=$(curl -sv -o /tmp/vault_pki_response.json -w "%{http_code}" \
+                                        --connect-timeout 10 \
+                                        --max-time 30 \
                                         --header "X-Vault-Token: ${VAULT_TOKEN}" \
                                         --request POST \
                                         --data '{"common_name": "demo.empresa.com", "ttl": "720h", "alt_names": "localhost", "ip_sans": "127.0.0.1"}' \
-                                        ''' + "http://44.203.73.97:8200/v1/pki/issue/demo-role" + ''')
+                                        http://44.203.73.97:8200/v1/pki/issue/demo-role 2>&1 | tee /tmp/vault_curl_debug.log; echo ${PIPESTATUS[0]})
 
-                                    echo "Vault response code: ${HTTP_CODE}"
+                                    echo "=== DEBUG: curl exit code: $? ==="
+                                    echo "=== DEBUG: HTTP response code: ${HTTP_CODE} ==="
+                                    echo "=== DEBUG: Response body ==="
+                                    cat /tmp/vault_pki_response.json || echo "No response file found"
+                                    echo ""
+                                    echo "=== DEBUG: curl verbose log ==="
+                                    cat /tmp/vault_curl_debug.log || true
 
                                     if [ "$HTTP_CODE" != "200" ]; then
                                         echo "ERROR: Vault returned HTTP ${HTTP_CODE}"
-                                        cat /tmp/vault_pki_response.json
+                                        echo "=== Full error response ==="
+                                        cat /tmp/vault_pki_response.json || true
                                         exit 1
                                     fi
 
-                                    # Extract cert and key using python3
+                                    echo "=== DEBUG: Extracting cert and key with python3 ==="
                                     python3 -c "
-import json
-with open('/tmp/vault_pki_response.json') as f:
-    data = json.load(f)['data']
-with open('nginx/ssl/server.crt', 'w') as f:
-    f.write(data['certificate'] + '\\n')
-    ca_chain = data.get('ca_chain', [])
-    if ca_chain:
-        f.write(ca_chain[0] + '\\n')
-with open('nginx/ssl/server.key', 'w') as f:
-    f.write(data['private_key'])
+import json, sys
+try:
+    with open('/tmp/vault_pki_response.json') as f:
+        response = json.load(f)
+    if 'data' not in response:
+        print('ERROR: No data field in response. Full response:')
+        print(json.dumps(response, indent=2))
+        sys.exit(1)
+    data = response['data']
+    with open('nginx/ssl/server.crt', 'w') as f:
+        f.write(data['certificate'] + '\\n')
+        ca_chain = data.get('ca_chain', [])
+        if ca_chain:
+            f.write(ca_chain[0] + '\\n')
+    with open('nginx/ssl/server.key', 'w') as f:
+        f.write(data['private_key'])
+    print('Certificate and key extracted successfully')
+except Exception as e:
+    print(f'ERROR: {e}')
+    sys.exit(1)
 "
                                     chmod 600 nginx/ssl/server.key
-                                    rm -f /tmp/vault_pki_response.json
+                                    echo "=== DEBUG: Verifying generated files ==="
+                                    ls -la nginx/ssl/
+                                    openssl x509 -in nginx/ssl/server.crt -noout -subject -dates 2>&1 || echo "WARNING: openssl not available for verification"
+                                    rm -f /tmp/vault_pki_response.json /tmp/vault_curl_debug.log
                                     echo "✅ Certificate generated from Vault PKI"
                                 '''
                             }
