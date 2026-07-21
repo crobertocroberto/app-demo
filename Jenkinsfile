@@ -77,13 +77,9 @@ pipeline {
                             ]
 
                             withVault([configuration: configuration, vaultSecrets: secrets]) {
-                                sh '''
-                                    mkdir -p nginx/ssl
-                                    echo "${SSL_CERTIFICATE}" > nginx/ssl/server.crt
-                                    echo "${SSL_CA_CHAIN}" >> nginx/ssl/server.crt
-                                    echo "${SSL_PRIVATE_KEY}" > nginx/ssl/server.key
-                                    chmod 600 nginx/ssl/server.key
-                                '''
+                                env.SSL_CERTIFICATE = SSL_CERTIFICATE
+                                env.SSL_PRIVATE_KEY = SSL_PRIVATE_KEY
+                                env.SSL_CA_CHAIN = SSL_CA_CHAIN
                             }
                         }
                         echo '✅ Certificate generated from Vault PKI'
