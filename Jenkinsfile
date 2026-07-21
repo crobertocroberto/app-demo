@@ -11,21 +11,21 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                echo '📥 Cloning repository...'
+                echo 'Cloning repository...'
                 checkout scm
             }
         }
 
         stage('Build') {
             steps {
-                echo '🔨 Building application...'
+                echo 'Building application...'
                 sh 'mvn clean compile -B'
             }
         }
 
         stage('Test') {
             steps {
-                echo '🧪 Running tests...'
+                echo 'Running tests...'
                 sh 'mvn test -B'
             }
             post {
@@ -37,7 +37,7 @@ pipeline {
 
         stage('Package') {
             steps {
-                echo '📦 Packaging application...'
+                echo 'Packaging application...'
                 sh 'mvn package -DskipTests -B'
             }
         }
@@ -46,22 +46,57 @@ pipeline {
             parallel {
                 stage('Build App Image') {
                     steps {
-                        echo '🐳 Building App Docker image...'
+                        echo 'Building App Docker image...'
                         sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
                         sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
                     }
                 }
                 stage('Build Nginx Image') {
                     steps {
-                        echo '🐳 Building Nginx Docker image...'
+                        echo 'Building Nginx Docker image...'
                         sh "docker build -t ${NGINX_IMAGE}:${DOCKER_TAG} -f nginx/Dockerfile.nginx nginx/"
                         sh "docker tag ${NGINX_IMAGE}:${DOCKER_TAG} ${NGINX_IMAGE}:latest"
                     }
                 }
+                stage('Generate SSL Certificate') {
+                    steps {
+                        echo 'Generating SSL certificate from Vault PKI...'
+                        withCredentials([string(credentialsId: 'admin-vault', variable: 'VAULT_TOKEN')]) {
+                            sh '''
+                                export VAULT_ADDR="http://44.203.73.97:8200"
+                                mkdir -p nginx/ssl
+
+                                vault write -format=json pki/issue/demo-role \
+                                    common_name="demo.empresa.com" \
+                                    ttl="720h" \
+                                    alt_names="localhost" \
+                                    ip_sans="127.0.0.1" > /tmp/vault_cert.json
+
+                                jq -r '.data.certificate' /tmp/vault_cert.json > nginx/ssl/server.crt
+                                jq -r '.data.ca_chain[0] // empty' /tmp/vault_cert.json >> nginx/ssl/server.crt
+                                jq -r '.data.private_key' /tmp/vault_cert.json > nginx/ssl/server.key
+
+                                chmod 600 nginx/ssl/server.key
+                                rm -f /tmp/vault_cert.json
+                            '''
+                        }
+                        echo 'SSL certificate generated from Vault PKI'
+                    }
+                }
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                echo 'Saving Docker image locally...'
+                sh "docker save -o /tmp/${DOCKER_IMAGE.replace('/', '_')}_${DOCKER_TAG}.tar ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                echo 'Image saved locally (no remote registry push for demo)'
+            }
+        }
 
         stage('Retrieve Secrets') {
             steps {
-                echo '🔐 Retrieving secrets from Vault...'
+                echo 'Retrieving secrets from Vault...'
                 script {
                     def secrets = [
                         [path: 'secret/demo', engineVersion: 2, secretValues: [
@@ -85,57 +120,13 @@ pipeline {
                         env.DB_NAME = DB_NAME
                     }
                 }
-                echo '✅ Secrets retrieved successfully'
+                echo 'Secrets retrieved successfully'
             }
         }
-
-
-
-
-
-                stage('Generate SSL Certificate') {
-                    steps {
-                        echo '🔑 Requesting SSL certificate from Vault PKI...'
-                        script {
-                            def secrets = [
-                                [path: 'pki/issue/demo-role', engineVersion: 2, secretValues: [
-                                    [envVar: 'SSL_CERTIFICATE', vaultKey: 'certificate'],
-                                    [envVar: 'SSL_PRIVATE_KEY', vaultKey: 'private_key'],
-                                    [envVar: 'SSL_CA_CHAIN', vaultKey: 'ca_chain']
-                                ]]
-                            ]
-
-                            def configuration = [
-                                vaultUrl: 'http://44.203.73.97:8200',
-                                vaultCredentialId: 'admin-vault',
-                                engineVersion: 2
-                            ]
-
-                            withVault([configuration: configuration, vaultSecrets: secrets]) {
-                                env.SSL_CERTIFICATE = SSL_CERTIFICATE
-                                env.SSL_PRIVATE_KEY = SSL_PRIVATE_KEY
-                                env.SSL_CA_CHAIN = SSL_CA_CHAIN
-                            }
-                        }
-                        echo '✅ Certificate generated from Vault PKI'
-                    }
-                }
-            }
-        }
-
-        stage('Docker Push') {
-            steps {
-                echo '🚀 Saving Docker image locally...'
-                sh "docker save -o /tmp/${DOCKER_IMAGE.replace('/', '_')}_${DOCKER_TAG}.tar ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                echo '✅ Image saved locally (no remote registry push for demo)'
-            }
-        }
-
-
 
         stage('Deploy') {
             steps {
-                echo '🌐 Deploying application...'
+                echo 'Deploying application...'
                 sh '''
                     # Create shared network
                     docker network create demo-net || true
@@ -162,7 +153,7 @@ pipeline {
                     rm -f "$ENV_FILE"
                 '''
 
-                echo '🌐 Deploying Nginx reverse proxy...'
+                echo 'Deploying Nginx reverse proxy...'
                 sh '''
                     docker run -d \
                         --name demo-nginx \
@@ -178,13 +169,13 @@ pipeline {
 
     post {
         success {
-            echo '✅ Pipeline completed successfully!'
+            echo 'Pipeline completed successfully!'
         }
         failure {
-            echo '❌ Pipeline failed. Check logs for details.'
+            echo 'Pipeline failed. Check logs for details.'
         }
         always {
-            echo '🧹 Cleaning workspace...'
+            echo 'Cleaning workspace...'
             cleanWs()
         }
     }
