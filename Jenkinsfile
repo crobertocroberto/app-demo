@@ -187,20 +187,19 @@ pipeline {
                     }
                 }
 
-                sshagent(['CR-3htp-Col']) {
-                    // Transfer Docker images and SSL certs to the instance
+                withCredentials([sshUserPrivateKey(credentialsId: 'CR-3htp-Col', keyFileVariable: 'SSH_KEY')]) {
                     sh '''
                         echo "Deploying to ${INSTANCE_IP}..."
 
                         # Transfer Docker images
-                        scp -o StrictHostKeyChecking=no /tmp/demo-cicd-app.tar ec2-user@${INSTANCE_IP}:/tmp/
-                        scp -o StrictHostKeyChecking=no /tmp/demo-nginx.tar ec2-user@${INSTANCE_IP}:/tmp/
+                        scp -o StrictHostKeyChecking=no -i ${SSH_KEY} /tmp/demo-cicd-app.tar ec2-user@${INSTANCE_IP}:/tmp/
+                        scp -o StrictHostKeyChecking=no -i ${SSH_KEY} /tmp/demo-nginx.tar ec2-user@${INSTANCE_IP}:/tmp/
 
                         # Transfer SSL certificates
-                        scp -o StrictHostKeyChecking=no -r nginx/ssl ec2-user@${INSTANCE_IP}:/tmp/
+                        scp -o StrictHostKeyChecking=no -i ${SSH_KEY} -r nginx/ssl ec2-user@${INSTANCE_IP}:/tmp/
 
                         # Deploy on the remote instance
-                        ssh -o StrictHostKeyChecking=no ec2-user@${INSTANCE_IP} << 'REMOTE_SCRIPT'
+                        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ec2-user@${INSTANCE_IP} << 'REMOTE_SCRIPT'
                             # Load Docker images
                             docker load -i /tmp/demo-cicd-app.tar
                             docker load -i /tmp/demo-nginx.tar
