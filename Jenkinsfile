@@ -51,6 +51,9 @@ pipeline {
                         echo "Instance ID: ${INSTANCE_ID}"
                         echo "Instance IP: ${PUBLIC_IP}"
 
+                        # Save IP for later stages
+                        echo "${PUBLIC_IP}" > /tmp/demo-cicd-instance-ip.txt
+
                         echo "Waiting for instance to be running..."
                         aws ec2 wait instance-running --instance-ids ${INSTANCE_ID} --region us-east-1
 
@@ -178,71 +181,64 @@ pipeline {
         stage('Deploy') {
             steps {
                 echo 'Deploying application to EC2 instance...'
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'AWS-COL',
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
-                    script {
-                        def instanceIp = sh(script: 'cd terraform && terraform init -input=false > /dev/null 2>&1 && terraform output -raw public_ip', returnStdout: true).trim()
-                        env.INSTANCE_IP = instanceIp
-                        echo "Target instance: ${instanceIp}"
-                    }
+                script {
+                    env.INSTANCE_IP = readFile('/tmp/demo-cicd-instance-ip.txt').trim()
+                    echo "Target instance: ${env.INSTANCE_IP}"
                 }
 
-                withCredentials([sshUserPrivateKey(credentialsId: 'CR-3htp-Col', keyFileVariable: 'SSH_KEY')]) {
-                    sh '''
-                        echo "Deploying to ${INSTANCE_IP}..."
+                sh '''
+                    echo "Deploying to ${INSTANCE_IP}..."
+                    SSH_KEY="/opt/keys/CR-3htp-Col.pem"
 
-                        # Transfer Docker images
-                        scp -o StrictHostKeyChecking=no -i ${SSH_KEY} /tmp/demo-cicd-app.tar ec2-user@${INSTANCE_IP}:/tmp/
-                        scp -o StrictHostKeyChecking=no -i ${SSH_KEY} /tmp/demo-nginx.tar ec2-user@${INSTANCE_IP}:/tmp/
+                    # Transfer Docker images
+                    scp -o StrictHostKeyChecking=no -i ${SSH_KEY} /tmp/demo-cicd-app.tar ec2-user@${INSTANCE_IP}:/tmp/
+                    scp -o StrictHostKeyChecking=no -i ${SSH_KEY} /tmp/demo-nginx.tar ec2-user@${INSTANCE_IP}:/tmp/
 
-                        # Transfer SSL certificates
-                        scp -o StrictHostKeyChecking=no -i ${SSH_KEY} -r nginx/ssl ec2-user@${INSTANCE_IP}:/tmp/
+                    # Transfer SSL certificates
+                    scp -o StrictHostKeyChecking=no -i ${SSH_KEY} -r nginx/ssl ec2-user@${INSTANCE_IP}:/tmp/
 
-                        # Deploy on the remote instance
-                        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ec2-user@${INSTANCE_IP} << 'REMOTE_SCRIPT'
-                            # Load Docker images
-                            docker load -i /tmp/demo-cicd-app.tar
-                            docker load -i /tmp/demo-nginx.tar
+                    # Deploy on the remote instance
+                    ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ec2-user@${INSTANCE_IP} << 'REMOTE_SCRIPT'
+                        # Load Docker images
+                        docker load -i /tmp/demo-cicd-app.tar
+                        docker load -i /tmp/demo-nginx.tar
 
-                            # Create shared network
-                            docker network create demo-net || true
+                        # Create shared network
+                        docker network create demo-net || true
 
-                            # Stop and remove existing containers
-                            docker stop demo-cicd demo-nginx || true
-                            docker rm demo-cicd demo-nginx || true
+                        # Stop and remove existing containers
+                        docker stop demo-cicd demo-nginx || true
+                        docker rm demo-cicd demo-nginx || true
 
-                            # Create SSL directory
-                            sudo mkdir -p /opt/nginx/ssl
-                            sudo cp /tmp/ssl/* /opt/nginx/ssl/
-                            sudo chmod 600 /opt/nginx/ssl/server.key
+                        # Create SSL directory
+                        sudo mkdir -p /opt/nginx/ssl
+                        sudo cp /tmp/ssl/* /opt/nginx/ssl/
+                        sudo chmod 600 /opt/nginx/ssl/server.key
 
-                            # Deploy app container
-                            docker run -d \
-                                --name demo-cicd \
-                                --network demo-net \
-                                -e DB_USER=''' + "${DB_USER}" + ''' \
-                                -e DB_PASSWORD=''' + "${DB_PASSWORD}" + ''' \
-                                -e DB_HOST=''' + "${DB_HOST}" + ''' \
-                                -e DB_NAME=''' + "${DB_NAME}" + ''' \
-                                ''' + "${DOCKER_IMAGE}:${DOCKER_TAG}" + '''
+                        # Deploy app container
+                        docker run -d \
+                            --name demo-cicd \
+                            --network demo-net \
+                            -e DB_USER=''' + "${DB_USER}" + ''' \
+                            -e DB_PASSWORD=''' + "${DB_PASSWORD}" + ''' \
+                            -e DB_HOST=''' + "${DB_HOST}" + ''' \
+                            -e DB_NAME=''' + "${DB_NAME}" + ''' \
+                            ''' + "${DOCKER_IMAGE}:${DOCKER_TAG}" + '''
 
-                            # Deploy Nginx container
-                            docker run -d \
-                                --name demo-nginx \
-                                --network demo-net \
-                                -p 443:443 \
-                                -p 80:80 \
-                                -v /opt/nginx/ssl:/etc/nginx/ssl:ro \
-                                ''' + "${NGINX_IMAGE}:${DOCKER_TAG}" + '''
+                        # Deploy Nginx container
+                        docker run -d \
+                            --name demo-nginx \
+                            --network demo-net \
+                            -p 443:443 \
+                            -p 80:80 \
+                            -v /opt/nginx/ssl:/etc/nginx/ssl:ro \
+                            ''' + "${NGINX_IMAGE}:${DOCKER_TAG}" + '''
 
-                            # Cleanup
-                            rm -f /tmp/demo-cicd-app.tar /tmp/demo-nginx.tar
-                            rm -rf /tmp/ssl
+                        # Cleanup
+                        rm -f /tmp/demo-cicd-app.tar /tmp/demo-nginx.tar
+                        rm -rf /tmp/ssl
 REMOTE_SCRIPT
-                    '''
-                }
+                '''
                 echo "Application deployed to ${env.INSTANCE_IP}"
             }
         }
