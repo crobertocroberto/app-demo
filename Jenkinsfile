@@ -177,9 +177,14 @@ pipeline {
         stage('Deploy') {
             steps {
                 echo 'Deploying application to EC2 instance...'
-                script {
-                    def instanceIp = sh(script: 'cd terraform && terraform output -raw public_ip', returnStdout: true).trim()
-                    env.INSTANCE_IP = instanceIp
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'AWS-COL',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                    script {
+                        def instanceIp = sh(script: 'cd terraform && terraform output -raw public_ip', returnStdout: true).trim()
+                        env.INSTANCE_IP = instanceIp
+                    }
                 }
 
                 sshagent(['CR-3htp-Col']) {
