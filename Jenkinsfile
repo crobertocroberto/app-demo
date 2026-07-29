@@ -25,6 +25,7 @@ pipeline {
                     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
                     sh '''
+                        mkdir -p /opt/terraform-state/demo-cicd
                         cd terraform
                         terraform init -input=false
                         terraform destroy -auto-approve -input=false || true
