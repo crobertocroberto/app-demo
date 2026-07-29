@@ -17,9 +17,9 @@ pipeline {
             }
         }
 
-        stage('Provision Infrastructure') {
+        stage('Destroy Infrastructure') {
             steps {
-                echo 'Provisioning EC2 instance with Terraform...'
+                echo 'Destroying existing infrastructure...'
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                     credentialsId: 'AWS-COL',
                     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
@@ -27,11 +27,22 @@ pipeline {
                     sh '''
                         cd terraform
                         terraform init -input=false
-
-                        echo "Destroying existing infrastructure..."
                         terraform destroy -auto-approve -input=false || true
+                    '''
+                }
+                echo 'Previous infrastructure destroyed'
+            }
+        }
 
-                        echo "Creating new infrastructure..."
+        stage('Provision Infrastructure') {
+            steps {
+                echo 'Creating new EC2 instance with Terraform...'
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'AWS-COL',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                    sh '''
+                        cd terraform
                         terraform apply -auto-approve -input=false
 
                         INSTANCE_ID=$(terraform output -raw instance_id)
@@ -156,47 +167,77 @@ pipeline {
 
         stage('Docker Push') {
             steps {
-                echo 'Saving Docker image locally...'
-                sh "docker save -o /tmp/${DOCKER_IMAGE.replace('/', '_')}_${DOCKER_TAG}.tar ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                echo 'Image saved locally (no remote registry push for demo)'
+                echo 'Saving Docker images...'
+                sh "docker save -o /tmp/demo-cicd-app.tar ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                sh "docker save -o /tmp/demo-nginx.tar ${NGINX_IMAGE}:${DOCKER_TAG}"
+                echo 'Images saved locally'
             }
         }
 
         stage('Deploy') {
             steps {
-                echo 'Deploying application...'
-                sh '''
-                    # Create shared network
-                    docker network create demo-net || true
+                echo 'Deploying application to EC2 instance...'
+                script {
+                    def instanceIp = sh(script: 'cd terraform && terraform output -raw public_ip', returnStdout: true).trim()
+                    env.INSTANCE_IP = instanceIp
+                }
 
-                    # Stop and remove existing containers
-                    docker stop demo-cicd demo-nginx || true
-                    docker rm demo-cicd demo-nginx || true
+                sshagent(['CR-3htp-Col']) {
+                    // Transfer Docker images and SSL certs to the instance
+                    sh '''
+                        echo "Deploying to ${INSTANCE_IP}..."
 
-                    # Write secrets to env file (persistent for demo validation)
-                    echo "DB_USER=${DB_USER}" > /tmp/demo-cicd-env.properties
-                    echo "DB_PASSWORD=${DB_PASSWORD}" >> /tmp/demo-cicd-env.properties
-                    echo "DB_HOST=${DB_HOST}" >> /tmp/demo-cicd-env.properties
-                    echo "DB_NAME=${DB_NAME}" >> /tmp/demo-cicd-env.properties
+                        # Transfer Docker images
+                        scp -o StrictHostKeyChecking=no /tmp/demo-cicd-app.tar ec2-user@${INSTANCE_IP}:/tmp/
+                        scp -o StrictHostKeyChecking=no /tmp/demo-nginx.tar ec2-user@${INSTANCE_IP}:/tmp/
 
-                    # Deploy app container
-                    docker run -d \
-                        --name demo-cicd \
-                        --network demo-net \
-                        --env-file /tmp/demo-cicd-env.properties \
-                        ''' + "${DOCKER_IMAGE}:${DOCKER_TAG}" + '''
-                '''
+                        # Transfer SSL certificates
+                        scp -o StrictHostKeyChecking=no -r nginx/ssl ec2-user@${INSTANCE_IP}:/tmp/
 
-                echo 'Deploying Nginx reverse proxy...'
-                sh '''
-                    docker run -d \
-                        --name demo-nginx \
-                        --network demo-net \
-                        -p 443:443 \
-                        -p 80:80 \
-                        -v $(pwd)/nginx/ssl:/etc/nginx/ssl:ro \
-                        ''' + "${NGINX_IMAGE}:${DOCKER_TAG}" + '''
-                '''
+                        # Deploy on the remote instance
+                        ssh -o StrictHostKeyChecking=no ec2-user@${INSTANCE_IP} << 'REMOTE_SCRIPT'
+                            # Load Docker images
+                            docker load -i /tmp/demo-cicd-app.tar
+                            docker load -i /tmp/demo-nginx.tar
+
+                            # Create shared network
+                            docker network create demo-net || true
+
+                            # Stop and remove existing containers
+                            docker stop demo-cicd demo-nginx || true
+                            docker rm demo-cicd demo-nginx || true
+
+                            # Create SSL directory
+                            sudo mkdir -p /opt/nginx/ssl
+                            sudo cp /tmp/ssl/* /opt/nginx/ssl/
+                            sudo chmod 600 /opt/nginx/ssl/server.key
+
+                            # Deploy app container
+                            docker run -d \
+                                --name demo-cicd \
+                                --network demo-net \
+                                -e DB_USER=''' + "${DB_USER}" + ''' \
+                                -e DB_PASSWORD=''' + "${DB_PASSWORD}" + ''' \
+                                -e DB_HOST=''' + "${DB_HOST}" + ''' \
+                                -e DB_NAME=''' + "${DB_NAME}" + ''' \
+                                ''' + "${DOCKER_IMAGE}:${DOCKER_TAG}" + '''
+
+                            # Deploy Nginx container
+                            docker run -d \
+                                --name demo-nginx \
+                                --network demo-net \
+                                -p 443:443 \
+                                -p 80:80 \
+                                -v /opt/nginx/ssl:/etc/nginx/ssl:ro \
+                                ''' + "${NGINX_IMAGE}:${DOCKER_TAG}" + '''
+
+                            # Cleanup
+                            rm -f /tmp/demo-cicd-app.tar /tmp/demo-nginx.tar
+                            rm -rf /tmp/ssl
+REMOTE_SCRIPT
+                    '''
+                }
+                echo "Application deployed to ${env.INSTANCE_IP}"
             }
         }
     }
