@@ -17,6 +17,24 @@ pipeline {
             }
         }
 
+        stage('Provision Infrastructure') {
+            steps {
+                echo 'Provisioning EC2 instance with Terraform...'
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'AWS-COL',
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                    sh '''
+                        cd terraform
+                        terraform init -input=false
+                        terraform apply -auto-approve -input=false
+                        echo "Instance IP: $(terraform output -raw public_ip)"
+                    '''
+                }
+                echo 'Infrastructure provisioned successfully'
+            }
+        }
+
         stage('Build') {
             steps {
                 echo 'Building application...'
