@@ -27,11 +27,28 @@ pipeline {
                     sh '''
                         cd terraform
                         terraform init -input=false
+
+                        echo "Destroying existing infrastructure..."
+                        terraform destroy -auto-approve -input=false || true
+
+                        echo "Creating new infrastructure..."
                         terraform apply -auto-approve -input=false
-                        echo "Instance IP: $(terraform output -raw public_ip)"
+
+                        INSTANCE_ID=$(terraform output -raw instance_id)
+                        PUBLIC_IP=$(terraform output -raw public_ip)
+                        echo "Instance ID: ${INSTANCE_ID}"
+                        echo "Instance IP: ${PUBLIC_IP}"
+
+                        echo "Waiting for instance to be running..."
+                        aws ec2 wait instance-running --instance-ids ${INSTANCE_ID} --region us-east-1
+
+                        echo "Waiting for instance status checks..."
+                        aws ec2 wait instance-status-ok --instance-ids ${INSTANCE_ID} --region us-east-1
+
+                        echo "Instance is ready!"
                     '''
                 }
-                echo 'Infrastructure provisioned successfully'
+                echo 'Infrastructure provisioned and validated successfully'
             }
         }
 
