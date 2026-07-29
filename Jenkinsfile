@@ -183,8 +183,9 @@ pipeline {
                     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
                     script {
-                        def instanceIp = sh(script: 'cd terraform && terraform output -raw public_ip', returnStdout: true).trim()
+                        def instanceIp = sh(script: 'cd terraform && terraform init -input=false > /dev/null 2>&1 && terraform output -raw public_ip', returnStdout: true).trim()
                         env.INSTANCE_IP = instanceIp
+                        echo "Target instance: ${instanceIp}"
                     }
                 }
 
